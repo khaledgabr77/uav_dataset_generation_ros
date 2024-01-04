@@ -111,6 +111,8 @@ def generate_launch_description():
                     {'traj_2D': True},
                     {'traj_directory': '/home/user/shared_volume/gazebo_trajectories/'},
                     {'file_name': 'gazebo_trajectory2D'},
+                    {'rgb_image_directory': '/home/user/shared_volume/gazebo_trajectories/rbg_images'},
+                    {'depth_image_directory': '/home/user/shared_volume/gazebo_trajectories/depth_images'}
         ],
         remappings=[
             ('mavros/state', 'mavros/state'),

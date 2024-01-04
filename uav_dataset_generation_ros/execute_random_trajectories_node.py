@@ -30,12 +30,30 @@ class OffboardControl(Node):
 
     def __init__(self):
         super().__init__('random_trajectories_node')
-        # Initialize previous timestamps to None or any initial value appropriate for your context
+
+        self.previous_imu_timestamp = 0.0
         self.previous_depth_timestamp = 0.0
         self.previous_img_timestamp = 0.0
         self.previous_odom_timestamp = 0.0
         self.previous_imu_timestamp = 0.0
         self.previous_gps_timestamp = 0.0
+
+        self.declare_parameter("record_odom", True)
+        self.record_odom_ = self.get_parameter('record_odom').get_parameter_value().bool_value
+
+        self.declare_parameter("record_img", True)
+        self.record_img_ = self.get_parameter('record_img').get_parameter_value().bool_value
+
+        self.declare_parameter("record_depth", True)
+        self.record_depth_ = self.get_parameter('record_depth').get_parameter_value().bool_value
+
+        self.declare_parameter("record_imu", True)
+        self.record_imu_ = self.get_parameter('record_imu').get_parameter_value().bool_value
+
+        self.declare_parameter("record_gps", True)
+        self.record_gps_ = self.get_parameter('record_gps').get_parameter_value().bool_value
+
+
 
         self.declare_parameter('system_id', 1)
         self.sys_id_ = self.get_parameter('system_id').get_parameter_value().integer_value
@@ -221,6 +239,15 @@ class OffboardControl(Node):
         self.depth_image_ = depth_msg
         self.imu_ = imu_msg
         self.gps_ = gps_msg
+
+        record_odom = self.get_parameter('record_odom').value
+        record_img = self.get_parameter('record_img').value
+        record_depth = self.get_parameter('record_depth').value
+        record_imu = self.get_parameter('record_imu').value
+        record_gps = self.get_parameter('record_gps').value
+
+
+
         current_depth_timestamp = (self.depth_image_.header.stamp.sec) + \
                                 float(self.depth_image_.header.stamp.nanosec)/1e9
         current_img_timestamp = (self.rgb_image_.header.stamp.sec) + \
@@ -230,7 +257,8 @@ class OffboardControl(Node):
         current_imu_timestamp = (self.imu_.header.stamp.sec) + \
                                 float(self.imu_.header.stamp.nanosec)/1e9
         current_gps_timestamp = (self.gps_.header.stamp.sec) + \
-                                float(self.gps_.header.stamp.nanosec)/1e9                        
+                                float(self.gps_.header.stamp.nanosec)/1e9   
+                     
 
         threshold = 0.001
         if self.reached_first_point_:
@@ -239,59 +267,78 @@ class OffboardControl(Node):
                 abs(current_odom_timestamp - self.previous_odom_timestamp) or
                 abs(current_imu_timestamp - self.previous_imu_timestamp) or
                 abs(current_gps_timestamp - self.previous_gps_timestamp)) >= threshold:
+                if record_odom:
+                    self.t = self.odom_.header.stamp.sec + self.odom_.header.stamp.nanosec * 1e-9
+                    self.tx = self.odom_.pose.pose.position.x
+                    self.ty = self.odom_.pose.pose.position.y
+                    self.tz = self.odom_.pose.pose.position.z
+                    # self.previous_odom_timestamp = current_odom_timestamp
+
+                if record_imu:
+                    self.orientation = self.imu_.orientation.w
+                    self.angular_velocity_x = self.imu_.angular_velocity.x
+                    self.angular_velocity_y = self.imu_.angular_velocity.y
+                    self.angular_velocity_z = self.imu_.angular_velocity.z
+
+                    self.linear_acceleration_x = self.imu_.linear_acceleration.x
+                    self.linear_acceleration_y = self.imu_.linear_acceleration.y
+                    self.linear_acceleration_z = self.imu_.linear_acceleration.z
+                    # self.previous_imu_timestamp = current_imu_timestamp
+
+                if record_gps:
+                    self.latitude = self.gps_.latitude
+                    self.longitude = self.gps_.longitude
+                    self.altitude = self.gps_.altitude
+                    # self.previous_gps_timestamp = current_gps_timestamp
+
+                if record_img:
+                    self.rgb_image_name = f"{self.file_name_}_{self.traj_counter_}_{self.offboard_setpoint_counter_}_rgb.png"
+                    self.cv_image_rgb = CvBridge().imgmsg_to_cv2(self.rgb_image_, "bgr8")
+                    self.save_image(self.cv_image_rgb, self.rgb_img_directory_, "rgb")
+                    # self.previous_img_timestamp = current_img_timestamp
+
+                if record_depth:
+                    self.depth_image_name = f"{self.file_name_}_{self.traj_counter_}_{self.offboard_setpoint_counter_}_depth.png"
+                    self.cv_image_depth = CvBridge().imgmsg_to_cv2(self.depth_image_, "passthrough")
+                    self.normalized_depth_img = cv2.normalize(
+                        self.cv_image_depth, None, 100, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                    self.save_image(self.normalized_depth_img, self.depth_img_directory_, "depth")
+                    # self.previous_depth_timestamp = current_depth_timestamp
 
 
 
-                # Update variables based on timestamp conditions
-                self.t = self.odom_.header.stamp.sec + self.odom_.header.stamp.nanosec * 1e-9
-                self.tx = self.odom_.pose.pose.position.x
-                self.ty = self.odom_.pose.pose.position.y
-                self.tz = self.odom_.pose.pose.position.z
+                    if (
+                        record_odom
+                        or record_imu
+                        or record_gps
+                    ):  # Check if any of these types are being recorded
+                        data_to_write = [
+                            self.t, self.tx, self.ty, self.tz, self.rgb_image_name, self.depth_image_name,
+                            self.orientation, self.angular_velocity_x, self.angular_velocity_y, self.angular_velocity_z,
+                            self.linear_acceleration_x, self.linear_acceleration_y, self.linear_acceleration_z,
+                            self.latitude, self.longitude, self.altitude
+                        ]
 
-                self.orientation = self.imu_.orientation.w
-                self.angular_velocity_x = self.imu_.angular_velocity.x
-                self.angular_velocity_y = self.imu_.angular_velocity.y
-                self.angular_velocity_z = self.imu_.angular_velocity.z
+                        if not record_odom:
+                            # If not recording odom, set its values to None
+                            data_to_write[1:4] = [None, None, None]
 
-                self.linear_acceleration_x = self.imu_.linear_acceleration.x
-                self.linear_acceleration_y = self.imu_.linear_acceleration.y
-                self.linear_acceleration_z = self.imu_.linear_acceleration.z
+                        if not record_imu:
+                            # If not recording imu, set its values to None
+                            data_to_write[6:13] = [None] * 7
 
-                self.latitude = self.gps_.latitude
-                self.longitude = self.gps_.longitude
-                self.altitude = self.gps_.altitude
+                        if not record_gps:
+                            # If not recording gps, set its values to None
+                            data_to_write[13:16] = [None] * 3
+                        data_to_write = [str(value) if value is not None else 'None' for value in data_to_write]
+                        self.csv_writer_.writerow(data_to_write)
+                        self.offboard_setpoint_counter_ += 1
 
-            self.rgb_image_name = f"{self.file_name_}_{self.traj_counter_}_{self.offboard_setpoint_counter_}_rgb.png"
-            self.depth_image_name = f"{self.file_name_}_{self.traj_counter_}_{self.offboard_setpoint_counter_}_depth.png"
-
-            self.cv_image_rgb = CvBridge().imgmsg_to_cv2(self.rgb_image_, "bgr8")
-            self.cv_image_depth = CvBridge().imgmsg_to_cv2(self.depth_image_, "passthrough")
-            self.normalized_depth_img = cv2.normalize(
-                self.cv_image_depth, None, 100, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U
-            )
-
-            self.save_image(self.cv_image_rgb , self.rgb_img_directory_, "rgb")
-
-            self.save_image(self.normalized_depth_img, self.depth_img_directory_, "depth")
-
-            # Save actual position in CSV file only if the timestamp condition is met
-            self.csv_writer_.writerow([self.t, self.tx, self.ty, self.tz, self.rgb_image_name, self.depth_image_name,
-                                        self.orientation, self.angular_velocity_x, self.angular_velocity_y, self.angular_velocity_z,
-                                        self.linear_acceleration_x, self.linear_acceleration_y, self.linear_acceleration_z, 
-                                        self.latitude, self.longitude, self.altitude])
-
-            self.offboard_setpoint_counter_ += 1
-            # Log timestamps
-        #     self.get_logger().info(f"Depth timestamp: {current_depth_timestamp}")
-        #     self.get_logger().info(f"Image timestamp: {current_img_timestamp}")
-        #     self.get_logger().info(f"Odom timestamp: {current_odom_timestamp}")
-        self.previous_depth_timestamp = current_depth_timestamp
-        self.previous_img_timestamp = current_img_timestamp
-        self.previous_odom_timestamp = current_odom_timestamp
-        self.previous_imu_timestamp = current_imu_timestamp
-        self.previous_gps_timestamp = current_gps_timestamp
-
-
+            self.previous_depth_timestamp = current_depth_timestamp
+            self.previous_img_timestamp = current_img_timestamp
+            self.previous_odom_timestamp = current_odom_timestamp
+            self.previous_imu_timestamp = current_imu_timestamp
+            self.previous_gps_timestamp = current_gps_timestamp
     def create_arrow_marker(self, id, tail, vector):
         msg = Marker()
         msg.action = Marker.ADD
